@@ -1,0 +1,127 @@
+---
+title: 'Course Project: Practical Machine Learning'
+author: "Nikhila Arkalgud"
+date: "January 29, 2016"
+output: html_document
+---
+
+Introduction
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset).
+http://groupware.les.inf.puc-rio.br/har
+
+Data Sets
+
+The training data for this project are available here:
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+
+The test data are available here:
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+The data for this project come from this source: http://groupware.les.inf.puc-rio.br/har. If you use the document you create for this class for any purpose please cite them as they have been very generous in allowing their data to be used for this kind of assignment.
+
+Data Preparation
+
+We will load the data and the 20 cases that will be submitted to coursera.
+Download the pml-training.csv and pml-testing.csv files from http://d396qusza40orc.cloudfront.net/predmachlearn
+
+```{r}
+pmltraining <- read.csv("http://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv", sep=",", na.strings=c("","NA"))
+pmltesting <- read.csv("http://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv", sep=",", na.strings=c("","NA"))
+```
+
+Data Cleaning
+
+We will remove columns with NAs and only use features used in the test set
+```{r}
+pmltesting1 <- pmltesting[1:159] # temporarily remove last column problem_id from test set
+features <- names(pmltesting1[,colSums(is.na(pmltesting1)) == 0]) # check for NA
+pmltraining <- pmltraining[,c(features,"classe")] # select only non NA features and include classe column
+pmltesting <- pmltesting[,c(features,"problem_id")] # select only non NA features and include problem_id column
+```
+
+Data Separation
+
+We will use divide training data set into 75% to train and 25% to test to fit a model.
+
+```{r}
+set.seed(235)
+library(caret)
+inTrain <- createDataPartition(pmltraining$classe, p = 0.75, list = F) 
+train <- pmltraining[inTrain,]
+test <- pmltraining[-inTrain,]
+```
+
+Feature Selection
+
+We will remove the high correlation features > 90%
+```{r}
+outcome <- which(names(train)=="classe")
+train_numeric <- train[sapply(train,is.numeric)]
+highCorrCols <- findCorrelation(abs(cor(train_numeric[,-outcome])),0.9)
+highCorFea <- names(train[highCorrCols]) 
+train <- train[,-highCorrCols] # remove the high correlation features
+```
+Features with high correlation are
+```{r}
+highCorFea
+```
+Now we will find out the most important features using Random Forest. The feature plot shows the topmost 4 features
+```{r}
+library(randomForest)
+outcome <- which(names(train)=="classe")
+rf_fs <- randomForest(train[,-outcome], train[,outcome], importance = T) 
+rf_imp <- data.frame(rf_fs$importance)
+keyFeatures <- order(-rf_imp$MeanDecreaseGini)
+inImp = createDataPartition(pmltraining$classe, p = 0.05, list = F)
+featurePlot(train[inImp,keyFeatures[1:4]],train$classe[inImp], plot = "pairs")
+```
+The most important features are
+```{r}
+kfnames <- names(train[keyFeatures[1:4]])
+kfnames
+```
+create a new train set with top 4 key features and include last column classe
+```{r}
+train_new <- train[,c(keyFeatures[1:4],ncol(train))]
+```
+
+
+Training
+
+I will training the dataset using two different classifiers, Random Forest and Boosting Algorithm
+
+
+Method Random Forest
+```{r}
+crf <- trainControl(method="oob")
+mrf <- train(classe ~ . , train_new, method = "rf", trControl = crf)
+```
+Method Boosting Algorithms
+```{r}
+cb <- trainControl(method="repeatedcv", number = 5, repeats = 1)
+mb <- train(classe ~ . , train_new, method = "gbm", trControl = cb, verbose = FALSE)
+```
+Compare the results
+```{r}
+fitrf <- predict(mrf,test)
+fitb <- predict(mb,test)
+```
+Confusion matrix for RF vs Test Set
+```{r}
+confusionMatrix(fitrf,test[,"classe"])
+```
+Confusion matrix for Bossting Algorithms vs Test Set
+```{r}
+confusionMatrix(fitb,test[,"classe"])
+```
+Random Forest and Boosting did almost the same, predicting with an accuracy of 99.9%
+
+Submit
+
+I will use the Random Forest model created to predict on the final 20 cases submitted to Coursera
+```{r}
+submit <- predict(mrf,pmltesting)
+```
